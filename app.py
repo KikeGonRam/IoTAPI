@@ -4,8 +4,6 @@ import mysql.connector
 import os
 from dotenv import load_dotenv
 import bcrypt
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from contextlib import contextmanager
 
 # Cargar variables de entorno
 load_dotenv()
@@ -14,24 +12,17 @@ app = Flask(__name__)
 CORS(app)
 
 # Configuración JWT
-app.config['JWT_SECRET_KEY'] = os.getenv("JWT_SECRET_KEY", "clave-secreta-temporal")
-jwt = JWTManager(app)
+#app.config['JWT_SECRET_KEY'] = os.getenv("JWT_SECRET_KEY", "clave-secreta-temporal")
+#jwt = JWTManager(app)
 
 # Gestor de conexión a la base de datos usando contextmanager
-@contextmanager
 def get_db_connection():
-    conn = None
-    try:
-        conn = mysql.connector.connect(
-            host=os.getenv("DB_HOST"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASS"),
-            database=os.getenv("DB_NAME")
-        )
-        yield conn
-    finally:
-        if conn is not None:
-            conn.close()
+    return mysql.connector.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASS"),
+        database=os.getenv("DB_NAME")
+    )
 
 # Ruta principal
 @app.route('/')
@@ -51,82 +42,59 @@ def get_admins():
     conn.close()
     return jsonify(admins)
 
-# Crear un nuevo admin
+# 🔵 Crear un nuevo admin (CREATE)
 @app.route('/admins', methods=['POST'])
-@jwt_required()
 def create_admin():
-    try:
-        data = request.json
-        nombre = data.get("nombre")
-        email = data.get("email")
-        password = data.get("password")
+    data = request.json
+    nombre = data.get("nombre")
+    email = data.get("email")
+    password = data.get("password")
 
-        if not nombre or not email or not password:
-            return jsonify({"error": "Todos los campos son obligatorios"}), 400
+    if not nombre or not email or not password:
+        return jsonify({"error": "Todos los campos son obligatorios"}), 400
 
-        # Encriptar la contraseña y convertirla a string
-        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    # Encriptar la contraseña
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("INSERT INTO admins (nombre, email, password) VALUES (%s, %s, %s)", 
-                              (nombre, email, hashed_password))
-                conn.commit()
-                return jsonify({"mensaje": "Admin creado correctamente", "id": cursor.lastrowid}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO admins (nombre, email, password) VALUES (%s, %s, %s)", (nombre, email, hashed_password))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"mensaje": "Admin creado correctamente"}), 201
 
-# Actualizar un admin
+# 🟡 Actualizar un admin (UPDATE)
 @app.route('/admins/<int:id>', methods=['PUT'])
-@jwt_required()
 def update_admin(id):
-    try:
-        data = request.json
-        nombre = data.get("nombre")
-        email = data.get("email")
+    data = request.json
+    nombre = data.get("nombre")
+    email = data.get("email")
 
-        if not nombre or not email:
-            return jsonify({"error": "Nombre y email son obligatorios"}), 400
+    if not nombre or not email:
+        return jsonify({"error": "Todos los campos son obligatorios"}), 400
 
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                # Verificar que el admin existe
-                cursor.execute("SELECT id FROM admins WHERE id = %s", (id,))
-                if not cursor.fetchone():
-                    return jsonify({"error": "Admin no encontrado"}), 404
-                
-                cursor.execute("UPDATE admins SET nombre=%s, email=%s, updated_at=NOW() WHERE id=%s", 
-                              (nombre, email, id))
-                conn.commit()
-                if cursor.rowcount == 0:
-                    return jsonify({"error": "No se realizaron cambios"}), 400
-                return jsonify({"mensaje": "Admin actualizado correctamente"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE admins SET nombre=%s, email=%s, updated_at=NOW() WHERE id=%s", (nombre, email, id))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"mensaje": "Admin actualizado correctamente"})
 
-# Eliminar un admin
+# 🔴 Eliminar un admin (DELETE)
 @app.route('/admins/<int:id>', methods=['DELETE'])
-@jwt_required()
 def delete_admin(id):
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                # Verificar que el admin existe
-                cursor.execute("SELECT id FROM admins WHERE id = %s", (id,))
-                if not cursor.fetchone():
-                    return jsonify({"error": "Admin no encontrado"}), 404
-                
-                cursor.execute("DELETE FROM admins WHERE id=%s", (id,))
-                conn.commit()
-                if cursor.rowcount == 0:
-                    return jsonify({"error": "No se pudo eliminar el admin"}), 400
-                return jsonify({"mensaje": "Admin eliminado correctamente"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM admins WHERE id=%s", (id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"mensaje": "Admin eliminado correctamente"})
 
 # Obtener detalle de un admin
 @app.route('/admins/<int:id>', methods=['GET'])
-@jwt_required()
 def get_admin(id):
     try:
         with get_db_connection() as conn:
@@ -143,7 +111,6 @@ def get_admin(id):
 
 # Obtener todos los usuarios
 @app.route('/usuarios', methods=['GET'])
-@jwt_required()
 def get_usuarios():
     try:
         with get_db_connection() as conn:
@@ -156,7 +123,6 @@ def get_usuarios():
 
 # Crear un nuevo usuario
 @app.route('/usuarios', methods=['POST'])
-@jwt_required()
 def create_usuario():
     try:
         data = request.json
@@ -187,7 +153,6 @@ def create_usuario():
 
 # Actualizar un usuario
 @app.route('/usuarios/<int:id>', methods=['PUT'])
-@jwt_required()
 def update_usuario(id):
     try:
         data = request.json
@@ -221,7 +186,6 @@ def update_usuario(id):
 
 # Eliminar un usuario
 @app.route('/usuarios/<int:id>', methods=['DELETE'])
-@jwt_required()
 def delete_usuario(id):
     try:
         with get_db_connection() as conn:
@@ -241,7 +205,6 @@ def delete_usuario(id):
 
 # Obtener detalle de un usuario
 @app.route('/usuarios/<int:id>', methods=['GET'])
-@jwt_required()
 def get_usuario(id):
     try:
         with get_db_connection() as conn:
@@ -325,7 +288,6 @@ def login_usuario():
 
 # Verificar token (ruta protegida de ejemplo)
 @app.route('/verify-token', methods=['GET'])
-@jwt_required()
 def verify_token():
     current_user_id = get_jwt_identity()
     return jsonify({"mensaje": "Token válido", "usuario_id": current_user_id}), 200
